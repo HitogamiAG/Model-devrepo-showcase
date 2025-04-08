@@ -1,0 +1,26 @@
+[project]
+name = "uav_model"
+version = "0.0.1"
+description = "Repository to train segmentation model for UAV"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Alexandr G."}
+]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python"
+]
+
+dependencies = [
+    "numpy>2.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pip-tools",
+    "pre-commit"
+]
+
+[project.urls]
+dataset = "https://uavid.nl"
