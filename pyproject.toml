@@ -14,7 +14,12 @@ classifiers = [
 
 dependencies = [
     "numpy>2.0",
-    "opencv-python"
+    "opencv-python",
+    "lightning",
+    "torchvision",
+    "segmentation-models-pytorch",
+    "albumentations",
+    "comet-ml"
 ]
 
 [project.optional-dependencies]
