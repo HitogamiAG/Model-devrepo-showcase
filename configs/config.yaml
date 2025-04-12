@@ -1,0 +1,78 @@
+data:
+  dry_run: true # Train & val on 16 images
+
+  train:
+    path: data/uavid_train
+
+    batch_size: 4
+    num_workers: 0 # Must be 0 for Windows or WSL https://github.com/pytorch/pytorch/issues/12831
+    pin_memory: true
+    shuffle: true
+    drop_last: true
+
+    transform:
+      __class_fullname__: Compose
+      transforms:
+        - __class_fullname__: RandomCrop
+          height: 960
+          width: 960
+          pad_position: random
+
+        - __class_fullname__: Normalize
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+
+        - __class_fullname__: ToTensorV2
+
+      additional_targets:
+        mask: mask
+
+  val:
+    path: data/uavid_val
+
+    batch_size: 4
+    num_workers: 0 # Must be 0 for Windows or WSL https://github.com/pytorch/pytorch/issues/12831
+    pin_memory: true
+    shuffle: false
+    drop_last: false
+
+    transform:
+      __class_fullname__: Compose
+      transforms:
+        - __class_fullname__: Resize
+          height: 960
+          width: 960
+
+        - __class_fullname__: Normalize
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+
+        - __class_fullname__: ToTensorV2
+
+      additional_targets:
+        mask: mask
+  
+  test:
+    path: data/uavid_test
+
+    batch_size: 4
+    num_workers: 0 # Must be 0 for Windows or WSL https://github.com/pytorch/pytorch/issues/12831
+    pin_memory: true
+    shuffle: false
+    drop_last: false
+
+    transform:
+      __class_fullname__: Compose
+      transforms:
+        - __class_fullname__: Resize
+          height: 960
+          width: 960
+
+        - __class_fullname__: Normalize
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+
+        - __class_fullname__: ToTensorV2
+
+      additional_targets:
+        mask: mask
