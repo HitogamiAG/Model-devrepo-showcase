@@ -13,13 +13,16 @@ classifiers = [
 ]
 
 dependencies = [
-    "numpy>2.0"
+    "numpy>2.0",
+    "opencv-python"
 ]
 
 [project.optional-dependencies]
 dev = [
     "pip-tools",
-    "pre-commit"
+    "pre-commit",
+    "ipykernel",
+    "matplotlib"
 ]
 
 [project.urls]

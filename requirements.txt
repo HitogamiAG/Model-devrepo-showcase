@@ -5,4 +5,8 @@
 #    pip-compile
 #
 numpy==2.2.4
+    # via
+    #   opencv-python
+    #   uav_model (pyproject.toml)
+opencv-python==4.11.0.86
     # via uav_model (pyproject.toml)
