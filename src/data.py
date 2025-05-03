@@ -51,10 +51,10 @@ class SegmentationDataModule(L.LightningDataModule):
                 image_crop_size=self.hparams["image_size"],
             )
 
-            # if self.hparams["dry_run"]:
-            #     # NOTE: For dry run we will use only 16 samples
-            #     self.train_dataset.samples = self.train_dataset.samples[:16]
-            #     self.val_dataset.samples = self.val_dataset.samples[:16]
+            if self.hparams["dry_run"]:
+                # NOTE: If your RAM is limited, you can use only 16 samples for dry run
+                self.train_dataset.samples = self.train_dataset.samples[:16]
+                self.val_dataset.samples = self.val_dataset.samples[:16]
 
         if stage == "test" or stage is None:
             # NOTE: As there are no labels for test split,
@@ -66,7 +66,7 @@ class SegmentationDataModule(L.LightningDataModule):
             )
 
             if self.hparams["dry_run"]:
-                # NOTE: For dry run we will use only 16 samples
+                # NOTE: If your RAM is limited, you can use only 16 samples for dry run
                 self.test_dataset.samples = self.test_dataset.samples[:16]
 
     def train_dataloader(self) -> DataLoader:

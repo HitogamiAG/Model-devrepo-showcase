@@ -96,11 +96,19 @@ if __name__ == "__main__":
     trainer.fit(model, datamodule=data_module)
     console_logger.info("Training finished.")
 
+    # --- Best model checkpoint ---
+    best_model_path = model_checkpoint.best_model_path
+
+    # --- Test the model ---
+    console_logger.info("Starting testing...")
+    trainer.test(model, datamodule=data_module, ckpt_path=best_model_path)
+    console_logger.info("Testing finished.")
+
     # --- End Comet Experiment (if used) ---
     if isinstance(loggers, list):
         for logger in loggers:
             if isinstance(logger, CometLogger):
-                finish_comet_run(logger, dirpath)
+                finish_comet_run(logger, best_model_path)
                 console_logger.debug("Comet experiment ended.")
 
     console_logger.info("Script finished.")

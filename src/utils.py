@@ -205,21 +205,15 @@ def get_loggers(logger_configs: dict, run_name: str) -> list | bool | None:
     return loggers
 
 
-def finish_comet_run(logger: CometLogger, dirname: str) -> None:
+def finish_comet_run(logger: CometLogger, best_ckpt_path: str = None) -> None:
     """Finish Comet experiment run.
 
     Args:
         logger (CometLogger): Comet logger.
         dirname (str): Path to experiment run directory.
     """
-    checkpoints = glob.glob(os.path.join(dirname, "*.ckpt"))
-    if len(checkpoints):
-        if len(checkpoints) == 1:
-            logger.experiment.log_model("model", checkpoints[0])
-        else:
-            for checkpoint in checkpoints:
-                checkpoint_filename = os.path.splitext(os.path.basename(checkpoint))[0]
-                logger.experiment.log_model(checkpoint_filename, checkpoint)
+    if best_ckpt_path:
+        logger.experiment.log_model("model", best_ckpt_path)
 
     logger.experiment.end()
 
