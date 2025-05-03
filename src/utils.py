@@ -191,12 +191,12 @@ def get_loggers(logger_configs: dict, run_name: str) -> list | bool | None:
             loggers.append(logger)
         elif logger_name == "csv":
             logger = CSVLogger(
-                save_dir=settings.LOG_DIR, name=run_name, **logger_params
+                save_dir=settings.TRAIN_LOG_DIR, name=run_name, **logger_params
             )
             loggers.append(logger)
         elif logger_name == "tensorboard":
             logger = TensorBoardLogger(
-                save_dir=settings.LOG_DIR, name=run_name, **logger_params
+                save_dir=settings.TRAIN_LOG_DIR, name=run_name, **logger_params
             )
             loggers.append(logger)
         else:

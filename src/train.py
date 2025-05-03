@@ -38,7 +38,7 @@ if __name__ == "__main__":
     console_logger.info(f"Generated run name: {run_name}")
 
     # --- Track experiment into local folder ---
-    dirpath = f"{settings.LOG_DIR}/train/{run_name}"
+    dirpath = f"{settings.TRAIN_LOG_DIR}/{run_name}"
     log_run_to_dir(dirpath, config)
 
     # --- Reproducibility ---
