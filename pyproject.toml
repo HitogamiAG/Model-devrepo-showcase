@@ -21,7 +21,8 @@ dependencies = [
     "albumentations",
     "comet-ml",
     "tensorboard",
-    "tensorboardX"
+    "tensorboardX",
+    "onnx"
 ]
 
 [project.optional-dependencies]

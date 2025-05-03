@@ -240,6 +240,30 @@ def get_callback(
         raise ValueError(f"Unsupported callback type: {callback_name}")
 
 
+def export_model_to_onnx(model, input_tensor, export_path):
+    """Export the model to ONNX format.
+
+    Args:
+        model: The model to export.
+        input_tensor: The input tensor for the model.
+        export_path: The path to save the exported ONNX model.
+    """
+    import torch
+
+    with torch.autocast("cuda", dtype=torch.float16):
+        torch.onnx.export(
+            model,
+            input_tensor,
+            export_path,
+            export_params=True,
+            opset_version=17,
+            do_constant_folding=True,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+        )
+
+
 if __name__ == "__main__":
     from pprint import pprint
 

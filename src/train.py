@@ -8,6 +8,7 @@ import settings
 from data import SegmentationDataModule
 from model import SegmentationModel
 from utils import (
+    export_model_to_onnx,
     finish_comet_run,
     generate_run_name,
     get_callback,
@@ -103,6 +104,18 @@ if __name__ == "__main__":
     console_logger.info("Starting testing...")
     trainer.test(model, datamodule=data_module, ckpt_path=best_model_path)
     console_logger.info("Testing finished.")
+
+    # --- Export the best model ---
+    if training_config["common"]["export_onnx"]:
+        console_logger.info("Exporting model to ONNX format...")
+        onnx_export_path = f"{dirpath}/model.onnx"
+        export_model_to_onnx(
+            model,
+            input_tensor=next(iter(data_module.test_dataloader()))[0],
+            export_path=onnx_export_path,
+        )
+        best_model_path = onnx_export_path
+        console_logger.info(f"Model exported to {onnx_export_path}")
 
     # --- End Comet Experiment (if used) ---
     if isinstance(loggers, list):

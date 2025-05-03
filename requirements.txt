@@ -100,6 +100,7 @@ numpy==2.2.4
     # via
     #   albucore
     #   albumentations
+    #   onnx
     #   opencv-python
     #   opencv-python-headless
     #   scipy
@@ -143,6 +144,8 @@ nvidia-nvjitlink-cu12==12.4.127
     #   torch
 nvidia-nvtx-cu12==12.4.127
     # via torch
+onnx==1.17.0
+    # via uav_model (pyproject.toml)
 opencv-python==4.11.0.86
     # via uav_model (pyproject.toml)
 opencv-python-headless==4.11.0.86
@@ -170,6 +173,7 @@ propcache==0.3.1
     #   yarl
 protobuf==6.30.2
     # via
+    #   onnx
     #   tensorboard
     #   tensorboardx
 psutil==7.0.0
