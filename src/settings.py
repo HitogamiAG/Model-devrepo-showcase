@@ -1,5 +1,11 @@
 """Persistent settings for the project"""
 
+import os
+
+CONFIG_PATH = "configs/config.yaml"
+
+LOG_DIR = "runs"
+
 CLASS_ENCODING = {
     "background": [0, 0, 0],
     "building": [0, 0, 128],
@@ -11,4 +17,4 @@ CLASS_ENCODING = {
     "static_vehicle": [192, 0, 192],
 }
 
-IMAGE_CROP_SIZE = 960
+COMET_API_KEY = os.environ.get("COMET_API_KEY", None)

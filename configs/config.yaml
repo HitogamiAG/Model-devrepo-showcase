@@ -1,5 +1,6 @@
 data:
   dry_run: true # Train & val on 16 images
+  image_size: 224
 
   train:
     path: data/uavid_train
@@ -14,8 +15,8 @@ data:
       __class_fullname__: Compose
       transforms:
         - __class_fullname__: RandomCrop
-          height: 960
-          width: 960
+          height: "{{data.image_size}}"
+          width: "{{data.image_size}}"
           pad_position: random
 
         - __class_fullname__: Normalize
@@ -40,8 +41,8 @@ data:
       __class_fullname__: Compose
       transforms:
         - __class_fullname__: Resize
-          height: 960
-          width: 960
+          height: "{{data.image_size}}"
+          width: "{{data.image_size}}"
 
         - __class_fullname__: Normalize
           mean: [0.485, 0.456, 0.406]
@@ -65,8 +66,8 @@ data:
       __class_fullname__: Compose
       transforms:
         - __class_fullname__: Resize
-          height: 960
-          width: 960
+          height: "{{data.image_size}}"
+          width: "{{data.image_size}}"
 
         - __class_fullname__: Normalize
           mean: [0.485, 0.456, 0.406]
@@ -76,3 +77,75 @@ data:
 
       additional_targets:
         mask: mask
+
+trainer:
+  common:
+    seed: 42
+    epochs: 10
+    accelerator: gpu
+    devices:
+      - 0
+    precision: 16-mixed
+    log_every_n_steps: 10
+
+  model:
+    arch: unet
+    encoder_name: mit_b0
+    encoder_weights: imagenet
+    in_channels: 3
+    classes: 8
+
+  loss:
+    loss_name: dice
+    loss_params:
+      mode: multiclass
+      from_logits: true
+      smooth: 0
+  
+  metrics:
+    metric_params:
+      task: multiclass
+      num_classes: 8
+      ignore_index: null
+
+  optimizer:
+    optimizer_name: adamw
+    optimizer_params:
+      lr: 0.0001
+      weight_decay: 0.01
+
+  scheduler:
+    use_scheduler: true
+    scheduler_name: cosineannealinglr
+    scheduler_params:
+      eta_min: 0.00001
+
+  callbacks:
+    model_checkpoint: # This callback is mandatory
+      filename: '{epoch}-{val_loss:.2f}'
+      monitor: val_iou
+      mode: max
+      save_top_k: 1
+      verbose: true
+
+    optional_callbacks:    
+    # - callback_name: EarlyStopping
+    #   callback_params:
+    #     monitor: val_iou
+    #     mode: max
+    #     patience: 10
+    #     verbose: true
+
+    - callback_name: LearningRateMonitor
+      callback_params:
+        logging_interval: epoch
+
+  loggers:
+    - logger_name: comet
+      logger_params:
+        project: uavid
+        workspace: uavid
+        online: true
+    - logger_name: tensorboard
+      logger_params: {}
+        

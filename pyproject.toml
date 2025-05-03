@@ -19,7 +19,9 @@ dependencies = [
     "torchvision",
     "segmentation-models-pytorch",
     "albumentations",
-    "comet-ml"
+    "comet-ml",
+    "tensorboard",
+    "tensorboardX"
 ]
 
 [project.optional-dependencies]

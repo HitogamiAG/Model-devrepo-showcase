@@ -48,12 +48,13 @@ class SegmentationDataModule(L.LightningDataModule):
             self.val_dataset = CustomValDataset(
                 data_split_path=self.hparams["val"]["path"],
                 transform_config=self.hparams["val"],
+                image_crop_size=self.hparams["image_size"],
             )
 
-            if self.hparams["dry_run"]:
-                # NOTE: For dry run we will use only 16 samples
-                self.train_dataset.samples = self.train_dataset.samples[:16]
-                self.val_dataset.samples = self.val_dataset.samples[:16]
+            # if self.hparams["dry_run"]:
+            #     # NOTE: For dry run we will use only 16 samples
+            #     self.train_dataset.samples = self.train_dataset.samples[:16]
+            #     self.val_dataset.samples = self.val_dataset.samples[:16]
 
         if stage == "test" or stage is None:
             # NOTE: As there are no labels for test split,
@@ -61,6 +62,7 @@ class SegmentationDataModule(L.LightningDataModule):
             self.test_dataset = CustomValDataset(
                 data_split_path=self.hparams["val"]["path"],
                 transform_config=self.hparams["val"],
+                image_crop_size=self.hparams["image_size"],
             )
 
             if self.hparams["dry_run"]:
@@ -247,7 +249,7 @@ class CustomValDataset(Dataset):
         self,
         data_split_path: str,
         transform_config: dict,
-        image_crop_size: int = settings.IMAGE_CROP_SIZE,
+        image_crop_size: int,
     ):
         """
         While the CustomTrainDataset returns random crop of N size of image,
@@ -256,7 +258,9 @@ class CustomValDataset(Dataset):
         """
         super().__init__()
 
-        self.parse_split_folder(data_split_path, image_crop_size)
+        self.image_crop_size = image_crop_size
+
+        self.parse_split_folder(data_split_path)
         self.parse_transform_config(transform_config)
 
         # NOTE: Dummy cache mechanism that speeds up testing x100 times
@@ -286,12 +290,11 @@ class CustomValDataset(Dataset):
 
         return intervals
 
-    def parse_split_folder(self, data_split_path: str, image_crop_size: int) -> None:
+    def parse_split_folder(self, data_split_path: str) -> None:
         """Parses the data split folder and initializes the dataset samples.
 
         Args:
             data_split_path (str): Path to the data split folder.
-            image_crop_size (int): Size of the crop.
         """
 
         self.samples = []
@@ -302,7 +305,9 @@ class CustomValDataset(Dataset):
             label_path = image_path.replace("/Images/", "/Labels/")
 
             height, width = get_png_size(image_path)
-            intervals = self.generate_slice_intervals(height, width, image_crop_size)
+            intervals = self.generate_slice_intervals(
+                height, width, self.image_crop_size
+            )
 
             for interval in intervals:
                 self.samples.append((image_path, label_path, interval))
@@ -408,8 +413,8 @@ class CustomValDataset(Dataset):
         image = image[interval]
         label = label[interval]
 
-        image = self.pad_if_needed(image, settings.IMAGE_CROP_SIZE)
-        label = self.pad_if_needed(label, settings.IMAGE_CROP_SIZE)
+        image = self.pad_if_needed(image, self.image_crop_size)
+        label = self.pad_if_needed(label, self.image_crop_size)
 
         augmented = self.transform(image=image, mask=label)
         sample = augmented["image"]
