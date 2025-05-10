@@ -5,7 +5,7 @@ import os
 CONFIG_PATH = "configs/config.yaml"
 
 TRAIN_LOG_DIR = "runs/train"
-INFER_LOG_DIR = "runs/infer"
+PREDICT_LOG_DIR = "runs/predict"
 
 CLASS_ENCODING = {
     "background": [0, 0, 0],

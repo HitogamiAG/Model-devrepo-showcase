@@ -2,6 +2,8 @@
 
 import glob
 import os
+from pathlib import Path
+from typing import Iterator
 
 import albumentations as A
 import cv2
@@ -10,6 +12,7 @@ import numpy as np
 from torch.utils.data import DataLoader, Dataset
 
 import settings
+from utils import get_console_logger
 
 
 def get_png_size(filepath: str) -> tuple:
@@ -421,6 +424,107 @@ class CustomValDataset(Dataset):
         label = augmented["mask"]
 
         return sample, label
+
+
+class PredictionSource:
+    """Custom class for handling prediction sources."""
+
+    SUPPORTED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"]
+    SUPPORTED_VIDEO_EXTENSIONS = [".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv"]
+
+    def __init__(self, source: str) -> None:
+        self.source = Path(source)
+
+        self.logger = get_console_logger("PredictionSource")
+
+        self.load_source()
+
+    def load_source(self) -> None:
+        if not self.source.exists():
+            raise FileNotFoundError(f"Source path does not exist: {self.source}")
+
+        if self.source.is_file():
+            suffix = self.source.suffix.lower()
+            if suffix in self.SUPPORTED_IMAGE_EXTENSIONS:
+                self._source_type = "image"
+                self._items = [self.source]
+                self._total_items = 1
+            elif suffix in self.SUPPORTED_VIDEO_EXTENSIONS:
+                self._source_type = "video"
+                self._items = cv2.VideoCapture(str(self.source))
+
+                if not self._items.isOpened():
+                    raise ValueError(f"Cannot open video file: {self.source}")
+
+                self._total_items = int(self._items.get(cv2.CAP_PROP_FRAME_COUNT))
+            else:
+                raise ValueError(f"Unsupported file type: {suffix}")
+        elif self.source.is_dir():
+            self._source_type = "folder"
+            self._items = sorted(
+                [
+                    p
+                    for p in self.source.iterdir()
+                    if p.is_file()
+                    and p.suffix.lower() in self.SUPPORTED_IMAGE_EXTENSIONS
+                ]
+            )
+
+            if not self._items:
+                raise FileNotFoundError(f"No images found in folder: {self.source}")
+            self._total_items = len(self._items)
+        else:
+            raise ValueError(f"Unsupported source type: {self.source}")
+
+        self.logger.info(
+            f"Loaded {self._source_type} source with {self._total_items} items."
+        )
+
+    def __iter__(self) -> Iterator[np.ndarray]:
+        """Returns the generator for iterating over processed images/batches."""
+        return self._generator()
+
+    def _generator(self) -> Iterator[np.array]:
+        """Generator function to yield processed images/videos.
+
+        Raises:
+            ValueError: If the image cannot be read / Unsupported source type.
+
+        Yields:
+            Iterator[np.array]: Processed images/batches.
+        """
+        if self._source_type == "image" or self._source_type == "folder":
+            paths = self._items
+            for img_path in paths:
+                img = cv2.imread(str(img_path))
+                img_filename = img_path.name
+                if img is None:
+                    raise ValueError(f"Failed to read image: {img_path}")
+                yield (img, img_filename)
+        elif self._source_type == "video":
+            frame_idx = 0
+            while True:
+                ret, frame = self._items.read()
+                frame_name = self.source.name + f"_{frame_idx:04d}.jpg"
+                if not ret:
+                    break
+                yield (frame, frame_name)
+        else:
+            raise ValueError(f"Unsupported source type: {self._source_type}")
+
+    def __len__(self) -> int:
+        """Get the total number of items in the source.
+
+        Returns:
+            int: Total number of items in the source.
+        """
+        return self._total_items
+
+    def __del__(self) -> None:
+        """Ensure video capture is released if the object is destroyed."""
+        if self._source_type == "video" and isinstance(self._items, cv2.VideoCapture):
+            if self._items.isOpened():
+                self._items.release()
 
 
 if __name__ == "__main__":

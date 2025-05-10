@@ -1,3 +1,4 @@
+import datetime as dt
 from warnings import filterwarnings
 
 import comet_ml  # type: ignore # To get all data logged automatically
@@ -8,15 +9,14 @@ import settings
 from data import SegmentationDataModule
 from model import SegmentationModel
 from utils import (
+    create_dir_safely,
     export_model_to_onnx,
     finish_comet_run,
-    generate_run_name,
     get_callback,
     get_console_logger,
     get_loggers,
     load_config,
-    log_run_to_dir,
-    parse_args,
+    parse_train_args,
 )
 
 if __name__ == "__main__":
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     console_logger = get_console_logger("TrainLogger")
 
     # --- Parse command line arguments ---
-    args = parse_args()
+    args = parse_train_args()
 
     # --- Load Hyperparameters ---
     config = load_config(args.config)
@@ -35,12 +35,15 @@ if __name__ == "__main__":
     console_logger.info(f"Loaded configuration from {settings.CONFIG_PATH}")
 
     # --- Set up run name ---
-    run_name = generate_run_name(training_config)
+    run_name = (
+        f"{training_config['model']['arch']}_{training_config['model']['encoder_name']}"
+    )
+    run_name += f"_{dt.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
     console_logger.info(f"Generated run name: {run_name}")
 
     # --- Track experiment into local folder ---
     dirpath = f"{settings.TRAIN_LOG_DIR}/{run_name}"
-    log_run_to_dir(dirpath, config)
+    create_dir_safely(dirpath)
 
     # --- Reproducibility ---
     L.seed_everything(
@@ -102,17 +105,25 @@ if __name__ == "__main__":
 
     # --- Test the model ---
     console_logger.info("Starting testing...")
-    trainer.test(model, datamodule=data_module, ckpt_path=best_model_path)
+    trainer.test(datamodule=data_module, ckpt_path=best_model_path)
     console_logger.info("Testing finished.")
 
     # --- Export the best model ---
     if training_config["common"]["export_onnx"]:
         console_logger.info("Exporting model to ONNX format...")
         onnx_export_path = f"{dirpath}/model.onnx"
+        half = training_config["common"]["export_onnx_fp16"]
+
+        model = SegmentationModel.load_from_checkpoint(
+            best_model_path,
+            trainer_config=training_config,
+        )
+
         export_model_to_onnx(
             model,
             input_tensor=next(iter(data_module.test_dataloader()))[0],
             export_path=onnx_export_path,
+            half=half,
         )
         best_model_path = onnx_export_path
         console_logger.info(f"Model exported to {onnx_export_path}")

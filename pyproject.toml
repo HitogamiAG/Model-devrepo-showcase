@@ -22,7 +22,9 @@ dependencies = [
     "comet-ml",
     "tensorboard",
     "tensorboardX",
-    "onnx"
+    "onnx",
+    "onnxruntime-gpu",
+    "requests"
 ]
 
 [project.optional-dependencies]

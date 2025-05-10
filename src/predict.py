@@ -1,192 +1,24 @@
+"""Prediction script for image segmentation tasks"""
+
+import datetime as dt
 import os
 from urllib.parse import urlparse
+from warnings import filterwarnings
 
-import lightning as L
+import cv2
 import numpy as np
 import onnxruntime as ort
 import requests
 import segmentation_models_pytorch as smp
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import torchmetrics
 
-from utils import get_console_logger
-
-
-class SegmentationModel(L.LightningModule):
-    """Lightning Module for Segmentation Models using Segmentation Models PyTorch (SMP)"""
-
-    def __init__(self, trainer_config):
-        super().__init__()
-        self.save_hyperparameters(trainer_config)
-
-        self.init_model()
-        self.init_loss()
-        self.init_metrics()
-
-    def init_model(self) -> None:
-        """Initialize the model based on the provided hyperparameters."""
-        self.model = smp.create_model(**self.hparams.model)
-
-    def init_loss(self) -> None:
-        """Initialize the loss function based on the provided hyperparameters."""
-        loss_name = self.hparams["loss"]["loss_name"]
-        if loss_name == "dice":
-            loss_class = smp.losses.DiceLoss
-        elif loss_name == "jaccard":
-            loss_class = smp.losses.JaccardLoss
-        elif loss_name == "ce":
-            loss_class = nn.CrossEntropyLoss
-        elif loss_name == "focal":
-            loss_class = smp.losses.FocalLoss
-        else:
-            raise ValueError(f"Unsupported loss function: {loss_name}")
-
-        self.loss_fn = loss_class(**self.hparams["loss"]["loss_params"])
-
-    def init_metrics(self) -> None:
-        """Initialize metrics based on the provided hyperparameters."""
-        metric_params = self.hparams["metrics"]["metric_params"]
-
-        self.train_iou = torchmetrics.JaccardIndex(**metric_params)
-        self.val_iou = torchmetrics.JaccardIndex(**metric_params)
-        self.test_iou = torchmetrics.JaccardIndex(**metric_params)
-
-        self.train_acc = torchmetrics.Accuracy(**metric_params, average="macro")
-        self.val_acc = torchmetrics.Accuracy(**metric_params, average="macro")
-        self.test_acc = torchmetrics.Accuracy(**metric_params, average="macro")
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Same as torch.nn.Module.forward"""
-        return self.model(x)
-
-    def _common_step(self, batch: tuple, batch_idx: int, stage: str) -> torch.Tensor:
-        """Common step for training, validation, and testing."""
-        images, masks = batch
-        logits = self(images)
-
-        loss = self.loss_fn(logits, masks)
-
-        preds = torch.argmax(logits, dim=1)  # (N, H, W)
-
-        if stage == "train":
-            iou = self.train_iou(preds, masks)
-            acc = self.train_acc(preds, masks)
-            self.log(
-                f"{stage}_loss",
-                loss,
-                on_step=True,
-                on_epoch=True,
-                prog_bar=False,
-                logger=True,
-            )
-            self.log(
-                f"{stage}_iou",
-                iou,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                f"{stage}_acc",
-                acc,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-        elif stage == "val":
-            iou = self.val_iou(preds, masks)
-            acc = self.val_acc(preds, masks)
-            self.log(
-                f"{stage}_loss",
-                loss,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                f"{stage}_iou",
-                iou,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-            self.log(
-                f"{stage}_acc",
-                acc,
-                on_step=False,
-                on_epoch=True,
-                prog_bar=True,
-                logger=True,
-            )
-        elif stage == "test":
-            iou = self.test_iou(preds, masks)
-            acc = self.test_acc(preds, masks)
-            self.log(f"{stage}_loss", loss, on_step=False, on_epoch=True, logger=True)
-            self.log(f"{stage}_iou", iou, on_step=False, on_epoch=True, logger=True)
-            self.log(f"{stage}_acc", acc, on_step=False, on_epoch=True, logger=True)
-
-        return loss
-
-    def training_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
-        """Training step for the model."""
-        return self._common_step(batch, batch_idx, "train")
-
-    def validation_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
-        """Validation step for the model."""
-        return self._common_step(batch, batch_idx, "val")
-
-    def test_step(self, batch: tuple, batch_idx: int) -> torch.Tensor:
-        """Test step for the model."""
-        return self._common_step(batch, batch_idx, "test")
-
-    def configure_optimizers(self) -> optim.Optimizer | tuple:
-        """Choose what optimizers and learning-rate schedulers to use in your optimization."""
-        optimizer_name = self.hparams["optimizer"]["optimizer_name"]
-        if optimizer_name == "adam":
-            optimizer_class = optim.Adam
-        elif optimizer_name == "adamw":
-            optimizer_class = optim.AdamW
-        elif optimizer_name == "sgd":
-            optimizer_class = optim.SGD
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.hparams.optimizer}")
-
-        optimizer = optimizer_class(
-            self.parameters(), **self.hparams["optimizer"]["optimizer_params"]
-        )
-
-        if self.hparams["scheduler"]["use_scheduler"]:
-            scheduler_name = self.hparams["scheduler"]["scheduler_name"]
-            if scheduler_name == "reducelronplateau":
-                scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer, **self.hparams["scheduler"]["scheduler_params"]
-                )
-                return {
-                    "optimizer": optimizer,
-                    "lr_scheduler": scheduler,
-                    "monitor": self.hparams["scheduler"]["monitor"],
-                }
-            elif scheduler_name == "cosineannealinglr":
-                scheduler = optim.lr_scheduler.CosineAnnealingLR(
-                    optimizer,
-                    T_max=self.hparams["common"]["epochs"],
-                    **self.hparams["scheduler"]["scheduler_params"],
-                )
-                return [optimizer], [scheduler]
-            else:
-                raise ValueError(f"Unsupported scheduler: {scheduler_name}")
-        else:
-            return optimizer
+import settings
+from data import PredictionSource
+from utils import create_dir_safely, get_console_logger, parse_predict_args
 
 
-class PredictionModel:
-    """Prediction model for image segmentation tasks."""
+class PredictionEngine:
+    """Prediction engine for image segmentation tasks."""
 
     DEFAULT_MEAN = np.array([0.485, 0.456, 0.406])  # ImageNet mean
     DEFAULT_STD = np.array([0.229, 0.224, 0.225])  # ImageNet std
@@ -200,7 +32,7 @@ class PredictionModel:
         intersection_ratio: float,
         half: bool = False,
     ):
-        """Initialize the PredictionModel.
+        """Initialize the PredictionEngine.
 
         Args:
             model_source (str): Path to the model file or URL.
@@ -218,7 +50,7 @@ class PredictionModel:
         self.intersection_ratio = intersection_ratio
         self.half = half
 
-        self.logger = get_console_logger(__name__)
+        self.logger = get_console_logger("PredictionEngine")
 
         self.load_model()
 
@@ -402,7 +234,7 @@ class PredictionModel:
                 : slice_interval[1].stop - slice_interval[1].start - pad_width,
             ]
 
-            mask_probs[slice_interval] += slice_probs
+            mask_probs[slice_interval] = slice_probs
 
         mask = np.argmax(mask_probs, axis=-1)
         return mask
@@ -484,10 +316,8 @@ class PredictionModel:
         ) / self.DEFAULT_STD.reshape(1, 3, 1, 1)
 
         if self._engine == "ort":
-            self.logger.info("Using ONNX Runtime for inference.")
             masks_probs = self.predict_ort(image_tensor)
         elif self._engine == "torch":
-            self.logger.info("Using PyTorch for inference.")
             masks_probs = self.predict_torch(image_tensor)
         else:
             raise ValueError(f"Unsupported engine: {self._engine}")
@@ -496,20 +326,41 @@ class PredictionModel:
 
 
 if __name__ == "__main__":
-    model1 = PredictionModel(
-        "runs/train/unet_mit_b0_2025-05-09_23-42-26/model.onnx", 8, 8, 224, 0.2, True
+
+    filterwarnings("ignore")
+    console_logger = get_console_logger("PredictLogger")
+
+    # --- Parse command line arguments ---
+    args = parse_predict_args()
+
+    # --- Set up run name ---
+    run_name = f'{dt.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")}'
+    console_logger.info(f"Generated run name: {run_name}")
+
+    # --- Track experiment into local folder ---
+    dirpath = f"{settings.PREDICT_LOG_DIR}/{run_name}"
+    create_dir_safely(dirpath)
+
+    # --- Load source ---
+    source_generator = PredictionSource(source=args.source)
+
+    # --- Load model ---
+    model = PredictionEngine(
+        model_source=args.model,
+        num_classes=args.num_classes,
+        batch_size=args.batch_size,
+        image_crop_size=args.imgsz,
+        intersection_ratio=args.intersection_ratio,
+        half=args.half,
     )
-    model2 = PredictionModel(
-        "runs/train/unet_mit_b0_2025-05-09_23-42-26/best_model.ckpt", 8, 8, 224, 0.2
-    )
 
-    import cv2
+    # --- Iterate over source and predict ---
+    for i, (image, image_filename) in enumerate(source_generator):
+        console_logger.info(f"Predicting image {i + 1}/{len(source_generator)}")
 
-    for i in range(4):
-        image = np.random.sample((1024, 1536, 3)).astype(np.float32)
-        mask1 = model1.predict(image)
-        mask2 = model2.predict(image)
+        # Predict the segmentation mask
+        mask = model.predict(image)
 
-        cv2.imwrite(f"mask1_{i}.png", (mask1 / 8 * 255).astype(np.uint8))
-        cv2.imwrite(f"mask2_{i}.png", (mask2 / 8 * 255).astype(np.uint8))
-        print(mask1.shape, mask2.shape)
+        # Save the predicted mask
+        mask_path = os.path.join(dirpath, image_filename)
+        cv2.imwrite(mask_path, (mask / args.num_classes * 255).astype(np.uint8))

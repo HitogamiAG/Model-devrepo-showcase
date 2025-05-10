@@ -1,9 +1,8 @@
-import datetime as dt
-import glob
 import logging
 import os
 from copy import copy
 
+import torch
 import yaml
 from lightning.pytorch.callbacks import (
     EarlyStopping,
@@ -14,9 +13,11 @@ from lightning.pytorch.loggers import CometLogger, CSVLogger, TensorBoardLogger
 
 import settings
 
+# --- Training / common utils ---
 
-def parse_args():
-    """Parse command line arguments.
+
+def parse_train_args():
+    """Parse train command line arguments.
 
     Returns:
         Namespace: Parsed arguments.
@@ -103,29 +104,14 @@ def load_config(config_path: str):
     return config
 
 
-def generate_run_name(config: dict) -> str:
-    """Generate a unique run name based on the configuration.
+def create_dir_safely(dirpath: str) -> None:
+    """Create a directory safely.
 
     Args:
-        config (dict): Configuration dictionary.
-
-    Returns:
-        str: Generated run name.
-    """
-    run_name = f"{config['model']['arch']}_{config['model']['encoder_name']}"
-    run_name += f"_{dt.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
-    return run_name
-
-
-def log_run_to_dir(dirpath: str, config: dict) -> None:
-    """Log the run to a directory.
-
-    Args:
-        dirpath (str): Directory path to save the logs.
-        config (dict): Configuration dictionary.
+        dirpath (str): Path to the directory.
 
     Raises:
-        FileExistsError: If the run's directory already exists.
+        FileExistsError: If the directory already exists.
     """
 
     if os.path.exists(dirpath):
@@ -135,10 +121,6 @@ def log_run_to_dir(dirpath: str, config: dict) -> None:
 
     # Create run's directory
     os.makedirs(dirpath)
-
-    # Save the configuration to a yaml file
-    with open(os.path.join(dirpath, "config.yaml"), "w") as file:
-        yaml.dump(config, file)
 
 
 def get_console_logger(logger_name: str) -> logging.Logger:
@@ -240,7 +222,9 @@ def get_callback(
         raise ValueError(f"Unsupported callback type: {callback_name}")
 
 
-def export_model_to_onnx(model, input_tensor, export_path):
+def export_model_to_onnx(
+    model: torch.nn.Module, input_tensor: torch.Tensor, export_path: str, half: bool
+):
     """Export the model to ONNX format.
 
     Args:
@@ -248,20 +232,96 @@ def export_model_to_onnx(model, input_tensor, export_path):
         input_tensor: The input tensor for the model.
         export_path: The path to save the exported ONNX model.
     """
-    import torch
 
-    with torch.autocast("cuda", dtype=torch.float16):
-        torch.onnx.export(
-            model,
-            input_tensor,
-            export_path,
-            export_params=True,
-            opset_version=17,
-            do_constant_folding=True,
-            input_names=["input"],
-            output_names=["output"],
-            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-        )
+    input_tensor = input_tensor.to("cuda")
+
+    if half:
+        input_tensor = input_tensor.half()
+        model.half()
+
+    torch.onnx.export(
+        model,
+        input_tensor,
+        export_path,
+        export_params=True,
+        opset_version=17,
+        do_constant_folding=True,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+    )
+
+
+# --- Prediction utils ---
+
+
+def parse_predict_args():
+    """Parse predict command line arguments.\n
+    CLI Args:
+        - source: Path to picture, folder, or video.
+        - model: Path to the model (ckpt or ONNX) (local or remote).
+        - imgsz: Image size for prediction.
+        - apply_slicing: Apply slicing to the input data.
+
+    Returns:
+        Namespace: Parsed arguments.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Predict with a model.")
+    parser.add_argument(
+        "--source",
+        type=str,
+        required=True,
+        help="Path to picture, folder, or video.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        help="Path to the model (ckpt or ONNX) (local or remote).",
+    )
+    parser.add_argument(
+        "--num_classes",
+        type=int,
+        default=8,
+        help="Number of classes for the model.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="Batch size for prediction.",
+    )
+    parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=224,
+        help="Image size for prediction.",
+    )
+    parser.add_argument(
+        "--intersection_ratio",
+        type=float,
+        default=0.2,
+        help="Intersection ratio for slicing.",
+    )
+    parser.add_argument(
+        "--half",
+        action="store_true",
+        default=False,
+        help="Only for PyTorch Engine! Use half precision for the model.",
+    )
+
+    # TODO Make it optional
+    # parser.add_argument(
+    #     "--apply_slicing",
+    #     action="store_true",
+    #     default=True,
+    #     help="Apply slicing to the input data.",
+    # )
+
+    args = parser.parse_args()
+    return args
 
 
 if __name__ == "__main__":
