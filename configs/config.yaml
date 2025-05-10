@@ -1,6 +1,14 @@
 data:
   dry_run: true # Train & val on 16 images
-  image_size: 224
+  image_width: 960
+  image_height: 960
+
+  # NOTE: To apply slicing:
+  # 1. Set `apply_slicing` to true and set `slice_width` and `slice_height` to the desired values.
+  # 2. Uncomment RandomCrop in the train transform section.
+  apply_slicing: true
+  slice_width: 512
+  slice_height: 512
 
   train:
     path: data/uavid_train
@@ -14,9 +22,14 @@ data:
     transform:
       __class_fullname__: Compose
       transforms:
+        - __class_fullname__: Resize
+          height: "{{data.image_height}}"
+          width: "{{data.image_width}}"
+          interpolation: 2 # bicubic; see https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
+
         - __class_fullname__: RandomCrop
-          height: "{{data.image_size}}"
-          width: "{{data.image_size}}"
+          height: "{{data.slice_height}}"
+          width: "{{data.slice_width}}"
           pad_position: random
 
         - __class_fullname__: Normalize
@@ -41,8 +54,9 @@ data:
       __class_fullname__: Compose
       transforms:
         - __class_fullname__: Resize
-          height: "{{data.image_size}}"
-          width: "{{data.image_size}}"
+          height: "{{data.image_height}}"
+          width: "{{data.image_width}}"
+          interpolation: 2 # bicubic; see https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
 
         - __class_fullname__: Normalize
           mean: [0.485, 0.456, 0.406]
@@ -66,8 +80,9 @@ data:
       __class_fullname__: Compose
       transforms:
         - __class_fullname__: Resize
-          height: "{{data.image_size}}"
-          width: "{{data.image_size}}"
+          height: "{{data.image_height}}"
+          width: "{{data.image_width}}"
+          interpolation: 2 # bicubic; see https://docs.opencv.org/3.4/da/d54/group__imgproc__transform.html
 
         - __class_fullname__: Normalize
           mean: [0.485, 0.456, 0.406]

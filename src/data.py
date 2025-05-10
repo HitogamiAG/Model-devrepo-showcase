@@ -9,6 +9,7 @@ import albumentations as A
 import cv2
 import lightning as L
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset
 
 import settings
@@ -42,7 +43,16 @@ class SegmentationDataModule(L.LightningDataModule):
         Args:
             stage (str, optional): Stage of the data module. Can be "fit", "test", or None. Defaults to None.
         """
+        image_width, image_height = (
+            self.hparams["image_width"],
+            self.hparams["image_height"],
+        )
+        apply_slicing = self.hparams["apply_slicing"]
+        slice_width = self.hparams["slice_width"] if apply_slicing else None
+        slice_height = self.hparams["slice_height"] if apply_slicing else None
+
         if stage == "fit" or stage is None:
+
             self.train_dataset = CustomTrainDataset(
                 data_split_path=self.hparams["train"]["path"],
                 transform_config=self.hparams["train"],
@@ -51,7 +61,11 @@ class SegmentationDataModule(L.LightningDataModule):
             self.val_dataset = CustomValDataset(
                 data_split_path=self.hparams["val"]["path"],
                 transform_config=self.hparams["val"],
-                image_crop_size=self.hparams["image_size"],
+                image_width=image_width,
+                image_height=image_height,
+                apply_slicing=apply_slicing,
+                slice_width=slice_width,
+                slice_height=slice_height,
             )
 
             if self.hparams["dry_run"]:
@@ -65,7 +79,11 @@ class SegmentationDataModule(L.LightningDataModule):
             self.test_dataset = CustomValDataset(
                 data_split_path=self.hparams["val"]["path"],
                 transform_config=self.hparams["val"],
-                image_crop_size=self.hparams["image_size"],
+                image_width=image_width,
+                image_height=image_height,
+                apply_slicing=apply_slicing,
+                slice_width=slice_width,
+                slice_height=slice_height,
             )
 
             if self.hparams["dry_run"]:
@@ -235,14 +253,12 @@ class CustomTrainDataset(Dataset):
             image = self.load_image(image_path)
             label = self.load_label(label_path)
             self.cache[image_path] = (image, label)
-        # image = self.load_image(image_path)
-        # label = self.load_label(label_path)
 
         augmented = self.transform(image=image, mask=label)
-        sample = augmented["image"]
+        image = augmented["image"]
         label = augmented["mask"]
 
-        return sample, label
+        return image, label.type(torch.long)
 
 
 class CustomValDataset(Dataset):
@@ -252,16 +268,28 @@ class CustomValDataset(Dataset):
         self,
         data_split_path: str,
         transform_config: dict,
-        image_crop_size: int,
-    ):
-        """
-        While the CustomTrainDataset returns random crop of N size of image,
-        the CustomTestDataset is filled with sequences of sliding windows ("slices") of size N.
-        So the CustomTestDataset reproduces "Slicing" inference strategy.
+        image_width: int,
+        image_height: int,
+        apply_slicing: bool = False,
+        slice_width: int = None,
+        slice_height: int = None,
+    ) -> None:
+        """Initializes the dataset with the given data split path, transform configuration,
+
+        Args:
+            data_split_path (str): Path to the data split folder.
+            transform_config (dict): Configuration for data augmentation transforms.
+            image_width (int): Width of the image.
+            image_height (int): Height of the image.
+            apply_slicing (bool, optional): Apply slicing method. Defaults to False.
+            slice_width (int, optional): Width of slices. Defaults to None.
+            slice_height (int, optional): Height of slices. Defaults to None.
         """
         super().__init__()
 
-        self.image_crop_size = image_crop_size
+        self.image_width, self.image_height = image_width, image_height
+        self.apply_slicing = apply_slicing
+        self.slice_width, self.slice_height = slice_width, slice_height
 
         self.parse_split_folder(data_split_path)
         self.parse_transform_config(transform_config)
@@ -270,14 +298,15 @@ class CustomValDataset(Dataset):
         self.cache = {}
 
     def generate_slice_intervals(
-        self, image_height: int, image_width: int, image_crop_size: int
+        self, image_height: int, image_width: int, slice_height: int, slice_width: int
     ) -> list:
         """Generates the intervals for slicing the image.
 
         Args:
             image_height (int): Height of the image.
             image_width (int): Width of the image.
-            image_crop_size (int): Size of the crop.
+            slice_height (int): Height of the slice.
+            slice_width (int): Width of the slice.
 
         Returns:
             list: List of tuples representing the intervals.
@@ -285,10 +314,19 @@ class CustomValDataset(Dataset):
         intervals = []
 
         # NOTE: It's ok if the slice end exceeds the image size, we will use paddning
-        for i in range(0, image_height, image_crop_size):
-            for j in range(0, image_width, image_crop_size):
+        for i in range(0, image_height, slice_height):
+            for j in range(0, image_width, slice_width):
+                slice_height_start = i - max(0, ((i + slice_height) - image_height))
+                slice_height_end = slice_height_start + slice_height
+
+                slice_width_start = j - max(0, ((j + slice_width) - image_width))
+                slice_width_end = slice_width_start + slice_width
+
                 intervals.append(
-                    (slice(i, i + image_crop_size), slice(j, j + image_crop_size))
+                    (
+                        slice(slice_height_start, slice_height_end),
+                        slice(slice_width_start, slice_width_end),
+                    )
                 )
 
         return intervals
@@ -307,10 +345,15 @@ class CustomValDataset(Dataset):
         ):
             label_path = image_path.replace("/Images/", "/Labels/")
 
-            height, width = get_png_size(image_path)
-            intervals = self.generate_slice_intervals(
-                height, width, self.image_crop_size
-            )
+            if self.apply_slicing:
+                intervals = self.generate_slice_intervals(
+                    self.image_height,
+                    self.image_width,
+                    self.slice_height,
+                    self.slice_width,
+                )
+            else:
+                intervals = [(slice(None), slice(None))]
 
             for interval in intervals:
                 self.samples.append((image_path, label_path, interval))
@@ -372,28 +415,6 @@ class CustomValDataset(Dataset):
 
         return encoded_label
 
-    def pad_if_needed(self, array: np.ndarray, target_size: int) -> np.ndarray:
-        """Pads the array to the target size if needed.
-
-        Args:
-            array (np.ndarray): Array to pad.
-            target_size (int): Target size.
-
-        Returns:
-            np.ndarray: Padded array.
-        """
-        height, width = array.shape[:2]
-
-        if height < target_size or width < target_size:
-            pad_height = max(0, target_size - height)
-            pad_width = max(0, target_size - width)
-
-            array = cv2.copyMakeBorder(
-                array, 0, pad_height, 0, pad_width, cv2.BORDER_CONSTANT, value=(0, 0, 0)
-            )
-
-        return array
-
     def __getitem__(self, idx: int) -> tuple:
         """Gets an item from the dataset.
 
@@ -411,19 +432,17 @@ class CustomValDataset(Dataset):
         else:
             image = self.load_image(image_path)
             label = self.load_label(label_path)
+
+            augmented = self.transform(image=image, mask=label)
+            image = augmented["image"]
+            label = augmented["mask"]
+
             self.cache[image_path] = (image, label)
 
-        image = image[interval]
+        image = image[slice(None), *interval]
         label = label[interval]
 
-        image = self.pad_if_needed(image, self.image_crop_size)
-        label = self.pad_if_needed(label, self.image_crop_size)
-
-        augmented = self.transform(image=image, mask=label)
-        sample = augmented["image"]
-        label = augmented["mask"]
-
-        return sample, label
+        return image, label.type(torch.long)
 
 
 class PredictionSource:
@@ -531,8 +550,9 @@ if __name__ == "__main__":
     import yaml
     from tqdm import tqdm
 
-    with open("configs/config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    from utils import load_config
+
+    config = load_config("configs/config.yaml")
 
     data_split_config = config["data"]
 
@@ -545,9 +565,12 @@ if __name__ == "__main__":
     for batch in tqdm(train_loader):
         images, labels = batch
         print(images.shape, labels.shape)
+        print(images.dtype, labels.dtype)
+
         break
 
     for batch in tqdm(val_loader):
         images, labels = batch
         print(images.shape, labels.shape)
+        print(images.dtype, labels.dtype)
         break
