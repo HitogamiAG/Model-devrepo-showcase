@@ -294,13 +294,37 @@ def parse_predict_args():
         help="Batch size for prediction.",
     )
     parser.add_argument(
-        "--imgsz",
+        "--image_height",
         type=int,
-        default=224,
-        help="Image size for prediction.",
+        default=512,
+        help="Image height for prediction.",
     )
     parser.add_argument(
-        "--intersection_ratio",
+        "--image_width",
+        type=int,
+        default=512,
+        help="Image width for prediction.",
+    ),
+    parser.add_argument(
+        "--apply_slicing",
+        action="store_true",
+        default=False,
+        help="Apply slicing to the input data.",
+    )
+    parser.add_argument(
+        "--slice_height",
+        type=int,
+        default=224,
+        help="Slice height for slicing.",
+    ),
+    parser.add_argument(
+        "--slice_width",
+        type=int,
+        default=224,
+        help="Slice width for slicing.",
+    ),
+    parser.add_argument(
+        "--slice_overlap",
         type=float,
         default=0.2,
         help="Intersection ratio for slicing.",
@@ -311,14 +335,6 @@ def parse_predict_args():
         default=False,
         help="Only for PyTorch Engine! Use half precision for the model.",
     )
-
-    # TODO Make it optional
-    # parser.add_argument(
-    #     "--apply_slicing",
-    #     action="store_true",
-    #     default=True,
-    #     help="Apply slicing to the input data.",
-    # )
 
     args = parser.parse_args()
     return args

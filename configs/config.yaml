@@ -1,14 +1,14 @@
 data:
   dry_run: true # Train & val on 16 images
-  image_width: 960
-  image_height: 960
+  image_width: 512
+  image_height: 512
 
   # NOTE: To apply slicing:
   # 1. Set `apply_slicing` to true and set `slice_width` and `slice_height` to the desired values.
   # 2. Uncomment RandomCrop in the train transform section.
   apply_slicing: true
-  slice_width: 512
-  slice_height: 512
+  slice_width: 224
+  slice_height: 224
 
   train:
     path: data/uavid_train

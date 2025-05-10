@@ -28,8 +28,12 @@ class PredictionEngine:
         model_source: str,
         num_classes: int,
         batch_size: int,
-        image_crop_size: int,
-        intersection_ratio: float,
+        image_height: int,
+        image_width: int,
+        apply_slicing: bool,
+        slice_height: int,
+        slice_width: int,
+        slice_overlap: float,
         half: bool = False,
     ):
         """Initialize the PredictionEngine.
@@ -46,8 +50,13 @@ class PredictionEngine:
         self.model_source = model_source
         self.num_classes = num_classes
         self.batch_size = batch_size
-        self.image_crop_size = image_crop_size
-        self.intersection_ratio = intersection_ratio
+        self.image_height = image_height
+        self.image_width = image_width
+        self.image_crop_size = slice_height
+        self.apply_slicing = apply_slicing
+        self.slice_height = slice_height
+        self.slice_width = slice_width
+        self.slice_overlap = slice_overlap
         self.half = half
 
         self.logger = get_console_logger("PredictionEngine")
@@ -146,35 +155,45 @@ class PredictionEngine:
         self,
         image_height: int,
         image_width: int,
-        image_crop_size: int,
-        intersect_ratio: float,
+        slice_height: int,
+        slice_width: int,
+        slice_overlap: float,
     ) -> list:
         """Generates the intervals for slicing the image.
 
         Args:
             image_height (int): Height of the image.
             image_width (int): Width of the image.
-            image_crop_size (int): Size of the crop.
+            slice_height (int): Height of the slice.
+            slice_width (int): Width of the slice.
+            slice_overlap (float): Overlap ratio for the slices.
 
         Returns:
             list: List of tuples representing the intervals.
         """
         intervals = []
 
-        intersection_size = int(image_crop_size * intersect_ratio)
-        step_size = image_crop_size - intersection_size
+        height_step_size = int(slice_height * (1 - slice_overlap))
+        width_step_size = int(slice_width * (1 - slice_overlap))
 
-        # NOTE: It's ok if the slice end exceeds the image size, we will use paddning
-        #       During concatenation, we will ignore the padded part
-        for i in range(0, image_height, step_size):
-            for j in range(0, image_width, step_size):
+        for i in range(0, image_height, height_step_size):
+            for j in range(0, image_width, width_step_size):
+                height_slice_start = i - max(0, (i + slice_height) - image_height)
+                height_slice_end = i + slice_height
+
+                width_slice_start = j - max(0, (j + slice_width) - image_width)
+                width_slice_end = j + slice_width
+
                 intervals.append(
-                    (slice(i, i + image_crop_size), slice(j, j + image_crop_size))
+                    (
+                        slice(height_slice_start, height_slice_end),
+                        slice(width_slice_start, width_slice_end),
+                    )
                 )
 
         return intervals
 
-    def apply_slicing(self, image: np.ndarray) -> tuple:
+    def split_to_slices(self, image: np.ndarray) -> tuple:
         """Apply slicing to the image based on the specified intervals.
 
         Args:
@@ -184,28 +203,19 @@ class PredictionEngine:
             tuple: Tuple containing the sliced images and the intervals.
         """
 
-        image_height, image_width = image.shape[:2]
-
         intervals = self.generate_slice_intervals(
-            image_height, image_width, self.image_crop_size, self.intersection_ratio
+            self.image_height,
+            self.image_width,
+            self.slice_height,
+            self.slice_width,
+            self.slice_overlap,
         )
 
-        images = []
-
+        slices = []
         for interval in intervals:
-            crop = image[interval]
-            if (
-                crop.shape[0] < self.image_crop_size
-                or crop.shape[1] < self.image_crop_size
-            ):
-                pad_height = max(0, self.image_crop_size - crop.shape[0])
-                pad_width = max(0, self.image_crop_size - crop.shape[1])
-                crop = np.pad(
-                    crop, ((0, pad_height), (0, pad_width), (0, 0)), mode="constant"
-                )
-            images.append(crop)
+            slices.append(image[interval])
 
-        return np.array(images), intervals
+        return np.array(slices), intervals
 
     def concatenate_slices(
         self, slices_probs: np.ndarray, intervals: list, image_shape: tuple
@@ -227,13 +237,6 @@ class PredictionEngine:
         )
 
         for slice_probs, slice_interval in zip(slices_probs, intervals):
-            pad_height = max(0, slice_interval[0].stop - image_shape[0])
-            pad_width = max(0, slice_interval[1].stop - image_shape[1])
-            slice_probs = slice_probs[
-                : slice_interval[0].stop - slice_interval[0].start - pad_height,
-                : slice_interval[1].stop - slice_interval[1].start - pad_width,
-            ]
-
             mask_probs[slice_interval] = slice_probs
 
         mask = np.argmax(mask_probs, axis=-1)
@@ -304,7 +307,16 @@ class PredictionEngine:
             np.ndarray: Predicted segmentation mask.
         """
 
-        image_tensor, intervals = self.apply_slicing(image)
+        height, width = image.shape[:2]
+        image = cv2.resize(
+            image, (self.image_width, self.image_height), interpolation=cv2.INTER_CUBIC
+        )
+
+        if self.apply_slicing:
+            image_tensor, intervals = self.split_to_slices(image)
+        else:
+            image_tensor = np.expand_dims(image, axis=0)
+            intervals = [(slice(None), slice(None))]
 
         image_tensor = np.moveaxis(image_tensor, (1, 2), (-1, -2))
 
@@ -322,7 +334,18 @@ class PredictionEngine:
         else:
             raise ValueError(f"Unsupported engine: {self._engine}")
 
-        return self.concatenate_slices(masks_probs, intervals, image.shape[:2])
+        mask = self.concatenate_slices(masks_probs, intervals, image.shape[:2])
+
+        if np.max(mask) > 255:
+            self.logger.warning(
+                "Number of classes exceeds 255. Converting to uint8 could lead to wrong results."
+            )
+
+        mask = cv2.resize(
+            mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_CUBIC
+        )
+
+        return mask
 
 
 if __name__ == "__main__":
@@ -349,9 +372,13 @@ if __name__ == "__main__":
         model_source=args.model,
         num_classes=args.num_classes,
         batch_size=args.batch_size,
-        image_crop_size=args.imgsz,
-        intersection_ratio=args.intersection_ratio,
         half=args.half,
+        image_height=args.image_height,
+        image_width=args.image_width,
+        apply_slicing=args.apply_slicing,
+        slice_height=args.slice_height,
+        slice_width=args.slice_width,
+        slice_overlap=args.slice_overlap,
     )
 
     # --- Iterate over source and predict ---
