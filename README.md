@@ -3,6 +3,7 @@
 Demonstration case
 
 Showcase for training computer vision segmentaion model for real-near business case
+
 Done:
 - Data download & preprocessing pipelines
 - Training & testing pipelines
